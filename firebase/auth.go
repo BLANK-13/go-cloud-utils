@@ -135,22 +135,20 @@ func (fa *FirebaseAuth) DeleteUser(ctx context.Context, uid string) error {
 	return nil
 }
 
-// CreateCustomToken creates a custom token for a user
-func (fa *FirebaseAuth) CreateCustomToken(ctx context.Context, uid string, claims map[string]interface{}) (string, error) {
-	var token string
-	var err error
-
-	if claims != nil && len(claims) > 0 {
-		token, err = fa.Auth.CustomTokenWithClaims(ctx, uid, claims)
-	} else {
-		token, err = fa.Auth.CustomToken(ctx, uid)
+// SetCustomClaims sets custom claims on a user's Firebase account
+// These claims will be included in the user's ID token when they sign in
+// Example usage:
+//
+//	claims := map[string]interface{}{
+//	    "admin": true,
+//	    "accessLevel": 5,
+//	}
+//	err := firebaseAuth.SetCustomClaims(ctx, uid, claims)
+func (fa *FirebaseAuth) SetCustomClaims(ctx context.Context, uid string, claims map[string]interface{}) error {
+	if err := fa.Auth.SetCustomUserClaims(ctx, uid, claims); err != nil {
+		return fmt.Errorf("error setting custom claims: %w", err)
 	}
-
-	if err != nil {
-		return "", fmt.Errorf("error creating custom token: %v", err)
-	}
-
-	return token, nil
+	return nil
 }
 
 // RevokeTokens revokes all refresh tokens for a user
