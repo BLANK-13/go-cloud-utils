@@ -18,11 +18,16 @@ type R2Client struct {
 // R2Object represents an object in R2 storage
 type R2Object struct {
 	Key          string            `json:"key"`
-	Size         int64             `json:"size"`
+	Size         json.Number       `json:"size"` // Changed from int64 to json.Number
 	ETag         string            `json:"etag"`
 	ContentType  string            `json:"content_type"`
 	LastModified string            `json:"last_modified"`
 	Metadata     map[string]string `json:"metadata"`
+}
+
+// GetSize returns the size as int64
+func (o *R2Object) GetSize() (int64, error) {
+	return o.Size.Int64()
 }
 
 // NewR2Client creates a new R2Client with the provided configuration
@@ -95,10 +100,8 @@ func (r *R2Client) UploadObject(ctx context.Context, bucketName, key string, dat
 	}
 
 	// Add metadata headers if provided
-	if metadata != nil {
 		for k, v := range metadata {
-			req.Header.Add("X-Metadata-"+k, v)
-		}
+		req.Header.Add("X-Metadata-"+k, v)
 	}
 
 	resp, err := r.client.Do(req)
