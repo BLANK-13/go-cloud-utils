@@ -4,16 +4,15 @@ import (
 	"time"
 
 	"firebase.google.com/go/v4/auth"
-	"github.com/google/uuid"
 )
 
 // BaseUser contains universal user properties across any application
 type BaseUser[T any] struct {
 	// Core identifiers
-	ID          string `json:"id"`          // Database primary key/ID
-	FirebaseUID string `json:"firebaseUid"` // Firebase authentication UID
-	Email       string `json:"email"`       // User's email address
-	
+	ID          string `json:"id"`    // Database primary key/ID
+	Email       string `json:"email"` // User's email address
+	PhoneNumber string `json:"phoneNumber,omitempty"`
+
 	// Common user metadata
 	DisplayName string     `json:"displayName,omitempty"`
 	PhotoURL    string     `json:"photoUrl,omitempty"`
@@ -21,11 +20,12 @@ type BaseUser[T any] struct {
 	UpdatedAt   time.Time  `json:"updatedAt"`
 	LastLoginAt *time.Time `json:"lastLoginAt,omitempty"`
 	Disabled    bool       `json:"disabled"`
-	
+
 	// Authentication properties
-	EmailVerified bool              `json:"emailVerified"`
+	EmailVerified bool                   `json:"emailVerified"`
+	PhoneVerified bool                   `json:"phoneVerified"`
 	Claims        map[string]interface{} `json:"claims,omitempty"`
-	
+
 	// Application-specific user data
 	Data T `json:"data"`
 }
@@ -34,17 +34,19 @@ type BaseUser[T any] struct {
 func FromFirebaseUser[T any](user *auth.UserRecord, data T) *BaseUser[T] {
 	lastLogin := user.UserMetadata.LastLogInTimestamp
 	var lastLoginTime *time.Time
-	
+
 	if lastLogin > 0 {
 		t := time.Unix(lastLogin/1000, 0)
 		lastLoginTime = &t
 	}
-	
+
 	createdAt := time.Unix(user.UserMetadata.CreationTimestamp/1000, 0)
-	
+
+	// New fields for phone authentication
+	phoneVerified := user.PhoneNumber != ""
+
 	return &BaseUser[T]{
-		ID:            uuid.New().String(),
-		FirebaseUID:   user.UID,
+		ID:            user.UID,
 		Email:         user.Email,
 		DisplayName:   user.DisplayName,
 		PhotoURL:      user.PhotoURL,
@@ -55,6 +57,8 @@ func FromFirebaseUser[T any](user *auth.UserRecord, data T) *BaseUser[T] {
 		EmailVerified: user.EmailVerified,
 		Claims:        user.CustomClaims,
 		Data:          data,
+		PhoneNumber:   user.PhoneNumber,
+		PhoneVerified: phoneVerified,
 	}
 }
 
@@ -66,7 +70,7 @@ func (u *BaseUser[T]) ToFirebaseUpdate() *auth.UserToUpdate {
 		PhotoURL(u.PhotoURL).
 		EmailVerified(u.EmailVerified).
 		Disabled(u.Disabled)
-		
+
 	return update
 }
 
@@ -75,7 +79,7 @@ func (u *BaseUser[T]) GetClaim(key string) (interface{}, bool) {
 	if u.Claims == nil {
 		return nil, false
 	}
-	
+
 	val, ok := u.Claims[key]
 	return val, ok
 }
@@ -85,7 +89,7 @@ func (u *BaseUser[T]) HasRole(role string) bool {
 	if u.Claims == nil {
 		return false
 	}
-	
+
 	// Check roles array if it exists
 	if roles, ok := u.Claims["roles"]; ok {
 		if rolesArr, ok := roles.([]interface{}); ok {
@@ -96,13 +100,13 @@ func (u *BaseUser[T]) HasRole(role string) bool {
 			}
 		}
 	}
-	
+
 	// Check direct role claim
 	if val, ok := u.Claims[role]; ok {
 		if boolVal, ok := val.(bool); ok {
 			return boolVal
 		}
 	}
-	
+
 	return false
 }
