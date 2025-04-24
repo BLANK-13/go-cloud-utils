@@ -15,7 +15,6 @@ import (
 )
 
 func main() {
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -28,6 +27,9 @@ func main() {
 
 	// Example: Firebase Authentication
 	firebaseExample(ctx, auth)
+
+	// Example: BaseUser model
+	userModelExample(ctx, auth)
 
 	// Example: Cloudflare Storage
 	cloudflareExample(ctx)
@@ -80,6 +82,83 @@ func firebaseExample(ctx context.Context, auth *firebase.FirebaseAuth) {
 		} else {
 			log.Printf("Deleted user: %s", uid)
 		}
+	}
+}
+
+func userModelExample(ctx context.Context, auth *firebase.FirebaseAuth) {
+	fmt.Println("\n=== BaseUser Model Example ===")
+
+	// Define an application-specific user data type
+	type AppUserData struct {
+		Preferences     map[string]string `json:"preferences"`
+		LastActive      time.Time         `json:"lastActive"`
+		ProfileComplete bool              `json:"profileComplete"`
+	}
+
+	// Create a test user
+	userParams := (&officialFirebaseAuth.UserToCreate{}).
+		Email("baseuser@example.com").
+		Password("password123").
+		DisplayName("Base User Test")
+
+	uid, err := auth.CreateUser(ctx, userParams)
+	if err != nil {
+		log.Printf("Failed to create user: %v", err)
+		return
+	}
+	log.Printf("Created user with Firebase UID: %s", uid)
+
+	// Set some custom claims
+	claims := map[string]interface{}{
+		"admin": true,
+		"roles": []interface{}{"editor", "viewer"},
+		"level": 5,
+	}
+
+	if err := auth.SetCustomClaims(ctx, uid, claims); err != nil {
+		log.Printf("Failed to set custom claims: %v", err)
+	}
+
+	// Get the Firebase user
+	fbUser, err := auth.GetUserByUID(ctx, uid)
+	if err != nil {
+		log.Printf("Failed to get user: %v", err)
+		return
+	}
+
+	// Create app-specific user data
+	userData := AppUserData{
+		Preferences: map[string]string{
+			"theme":    "dark",
+			"language": "en",
+		},
+		LastActive:      time.Now(),
+		ProfileComplete: false,
+	}
+
+	// Convert to our BaseUser model
+	baseUser := firebase.FromFirebaseUser[AppUserData](fbUser, userData)
+
+	// Display the user model
+	log.Printf("BaseUser created with ID: %s (different from Firebase UID: %s)",
+		baseUser.ID, baseUser.FirebaseUID)
+
+	// Demonstrate claims/roles helpers
+	isAdmin, _ := baseUser.GetClaim("admin")
+	log.Printf("User is admin: %v", isAdmin)
+
+	log.Printf("User has editor role: %v", baseUser.HasRole("editor"))
+	log.Printf("User has admin role: %v", baseUser.HasRole("admin"))
+
+	// Show app-specific data
+	log.Printf("User preferences: %v", baseUser.Data.Preferences)
+	log.Printf("Profile complete: %v", baseUser.Data.ProfileComplete)
+
+	// Clean up - delete user
+	if err := auth.DeleteUser(ctx, uid); err != nil {
+		log.Printf("Failed to delete user: %v", err)
+	} else {
+		log.Printf("Deleted user: %s", uid)
 	}
 }
 
