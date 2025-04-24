@@ -4,7 +4,7 @@ go 1.23.1
 
 require (
 	firebase.google.com/go/v4 v4.15.2
-	github.com/BLANK-13/go-cloud-utils v0.1.0
+	github.com/BLANK-13/go-cloud-utils v0.0.0
 )
 
 require (
@@ -60,3 +60,5 @@ require (
 	google.golang.org/grpc v1.71.1 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 )
+
+replace github.com/BLANK-13/go-cloud-utils => ../
