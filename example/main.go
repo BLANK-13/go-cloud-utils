@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/joho/godotenv" 
 	officialFirebaseAuth "firebase.google.com/go/v4/auth"
 	"github.com/BLANK-13/go-cloud-utils/cloudflare"
 	"github.com/BLANK-13/go-cloud-utils/firebase"
@@ -18,8 +19,15 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	auth, err := firebase.InitFirebase(ctx, os.Getenv("FIREBASE_SERVICE_ACCOUNT_JSON_PATH"))
+	if err := godotenv.Load(); err != nil {
+        log.Printf("Warning: could not load .env file: %v", err)
+		return
+    }
 	
+
+	auth, err := firebase.InitFirebase(ctx, os.Getenv("FIREBASE_SERVICE_ACCOUNT_JSON_PATH"))
+
+
 	if err != nil {
 		log.Printf("Failed to initialize Firebase: %v", err)
 		return
@@ -85,80 +93,96 @@ func firebaseExample(ctx context.Context, auth *firebase.FirebaseAuth) {
 	}
 }
 
+// userModelExample demonstrates the BaseUser generic model
 func userModelExample(ctx context.Context, auth *firebase.FirebaseAuth) {
 	fmt.Println("\n=== BaseUser Model Example ===")
 
 	// Define an application-specific user data type
 	type AppUserData struct {
-		Preferences     map[string]string `json:"preferences"`
-		LastActive      time.Time         `json:"lastActive"`
-		ProfileComplete bool              `json:"profileComplete"`
+		Preferences map[string]string `json:"preferences"`
+		LastActive  time.Time         `json:"lastActive"`
 	}
 
-	// Create a test user
-	userParams := (&officialFirebaseAuth.UserToCreate{}).
-		Email("baseuser@example.com").
+	// 1. EMAIL USER FLOW
+	fmt.Println("\n--- Email Authentication User ---")
+	emailUserParams := (&officialFirebaseAuth.UserToCreate{}).
+		Email("email-user@example.com").
 		Password("password123").
-		DisplayName("Base User Test")
+		DisplayName("Email User")
 
-	uid, err := auth.CreateUser(ctx, userParams)
+	emailUID, err := auth.CreateUser(ctx, emailUserParams)
 	if err != nil {
-		log.Printf("Failed to create user: %v", err)
+		log.Printf("Failed to create email user: %v", err)
 		return
 	}
-	log.Printf("Created user with Firebase UID: %s", uid)
+	log.Printf("Created email user with UID: %s", emailUID)
 
-	// Set some custom claims
-	claims := map[string]interface{}{
-		"admin": true,
-		"roles": []interface{}{"editor", "viewer"},
-		"level": 5,
-	}
-
-	if err := auth.SetCustomClaims(ctx, uid, claims); err != nil {
-		log.Printf("Failed to set custom claims: %v", err)
-	}
-
-	// Get the Firebase user
-	fbUser, err := auth.GetUserByUID(ctx, uid)
+	// Get Firebase user record
+	emailFbUser, err := auth.GetUserByUID(ctx, emailUID)
 	if err != nil {
-		log.Printf("Failed to get user: %v", err)
+		log.Printf("Failed to get email user: %v", err)
 		return
 	}
 
-	// Create app-specific user data
-	userData := AppUserData{
-		Preferences: map[string]string{
-			"theme":    "dark",
-			"language": "en",
-		},
-		LastActive:      time.Now(),
-		ProfileComplete: false,
+	// Create BaseUser for email user
+	emailUserData := AppUserData{
+		Preferences: map[string]string{"theme": "light"},
+		LastActive:  time.Now(),
 	}
 
-	// Convert to our BaseUser model
-	baseUser := firebase.FromFirebaseUser[AppUserData](fbUser, userData)
+	emailBaseUser := firebase.FromFirebaseUser(emailFbUser, emailUserData)
 
-	// Display the user model
-	log.Printf("BaseUser created with ID: %s (different from Firebase UID: %s)",
-		baseUser.ID, baseUser.FirebaseUID)
+	// 2. PHONE USER FLOW
+	fmt.Println("\n--- Phone Authentication User ---")
+	phoneUserParams := (&officialFirebaseAuth.UserToCreate{}).
+		PhoneNumber("+966555555555") // This simulates a verified phone number
 
-	// Demonstrate claims/roles helpers
-	isAdmin, _ := baseUser.GetClaim("admin")
-	log.Printf("User is admin: %v", isAdmin)
+	phoneUID, err := auth.CreateUser(ctx, phoneUserParams)
+	if err != nil {
+		log.Printf("Failed to create phone user: %v", err)
+		return
+	}
+	log.Printf("Created phone user with UID: %s", phoneUID)
 
-	log.Printf("User has editor role: %v", baseUser.HasRole("editor"))
-	log.Printf("User has admin role: %v", baseUser.HasRole("admin"))
+	// Get Firebase user record
+	phoneFbUser, err := auth.GetUserByUID(ctx, phoneUID)
+	if err != nil {
+		log.Printf("Failed to get phone user: %v", err)
+		return
+	}
 
-	// Show app-specific data
-	log.Printf("User preferences: %v", baseUser.Data.Preferences)
-	log.Printf("Profile complete: %v", baseUser.Data.ProfileComplete)
+	// Create BaseUser for phone user
+	phoneUserData := AppUserData{
+		Preferences: map[string]string{"notifications": "sms"},
+		LastActive:  time.Now(),
+	}
 
-	// Clean up - delete user
-	if err := auth.DeleteUser(ctx, uid); err != nil {
-		log.Printf("Failed to delete user: %v", err)
-	} else {
-		log.Printf("Deleted user: %s", uid)
+	phoneBaseUser := firebase.FromFirebaseUser(phoneFbUser, phoneUserData)
+
+	// 3. VERIFY BOTH USER TYPES
+	fmt.Println("\n--- Verification of Both User Types ---")
+
+	// Email user verification
+	log.Printf("Email User ID: %s", emailBaseUser.ID)
+	log.Printf("Email: %s (verified: %v)", emailBaseUser.Email, emailBaseUser.EmailVerified)
+	log.Printf("Phone Number: %s (verified: %v)", emailBaseUser.PhoneNumber, emailBaseUser.PhoneVerified)
+	log.Printf("Display Name: %s", emailBaseUser.DisplayName)
+	log.Printf("App data - preferences: %v", emailBaseUser.Data.Preferences)
+
+	// Phone user verification
+	log.Printf("Phone User ID: %s", phoneBaseUser.ID)
+	log.Printf("Email: %s (verified: %v)", phoneBaseUser.Email, phoneBaseUser.EmailVerified)
+	log.Printf("Phone Number: %s (verified: %v)", phoneBaseUser.PhoneNumber, phoneBaseUser.PhoneVerified)
+	log.Printf("Display Name: %s", phoneBaseUser.DisplayName)
+	log.Printf("App data - preferences: %v", phoneBaseUser.Data.Preferences)
+
+	// 4. CLEANUP
+	if err := auth.DeleteUser(ctx, emailUID); err != nil {
+		log.Printf("Failed to delete email user: %v", err)
+	}
+
+	if err := auth.DeleteUser(ctx, phoneUID); err != nil {
+		log.Printf("Failed to delete phone user: %v", err)
 	}
 }
 
