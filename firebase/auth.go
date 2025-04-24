@@ -12,6 +12,14 @@ import (
 	"google.golang.org/api/option"
 )
 
+// Unexported type for context keys to prevent collisions.
+type contextKey string
+
+const (
+	tokenKey contextKey = "token"
+	uidKey   contextKey = "uid"
+)
+
 // FirebaseAuth holds the Firebase client and auth client instances
 type FirebaseAuth struct {
 	App  *firebase.App
@@ -105,6 +113,14 @@ func (fa *FirebaseAuth) GetUserByEmail(ctx context.Context, email string) (*auth
 	return user, nil
 }
 
+func (fa *FirebaseAuth) GetUserByPhoneNumber(ctx context.Context, phone string) (*auth.UserRecord, error) {
+	user, err := fa.Auth.GetUserByPhoneNumber(ctx, phone)
+	if err != nil {
+		return nil, fmt.Errorf("error getting user by phone number: %v", err)
+	}
+	return user, nil
+}
+
 // CreateUser creates a new Firebase user
 func (fa *FirebaseAuth) CreateUser(ctx context.Context, params *auth.UserToCreate) (string, error) {
 	user, err := fa.Auth.CreateUser(ctx, params)
@@ -168,7 +184,6 @@ func GetTokenFromRequest(r *http.Request) (string, error) {
 		return "", errors.New("authorization header is required")
 	}
 
-	// Check if the header starts with "Bearer "
 	if strings.HasPrefix(authHeader, "Bearer ") {
 		return strings.TrimPrefix(authHeader, "Bearer "), nil
 	}
@@ -192,18 +207,15 @@ func (fa *FirebaseAuth) AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Verify the token
 		token, err := fa.VerifyIDToken(r.Context(), idToken)
 		if err != nil {
 			http.Error(w, "Invalid token: "+err.Error(), http.StatusUnauthorized)
 			return
 		}
 
-		// Add the token to the request context
-		ctx := context.WithValue(r.Context(), "token", token)
-		ctx = context.WithValue(ctx, "uid", token.UID)
+		ctx := context.WithValue(r.Context(), tokenKey, token)
+		ctx = context.WithValue(ctx, uidKey, token.UID)
 
-		// Call the next handler with the updated context
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -220,36 +232,34 @@ func RequireAuth(fa *FirebaseAuth, next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// Verify the token
 		token, err := fa.VerifyIDToken(r.Context(), idToken)
 		if err != nil {
 			http.Error(w, "Invalid token: "+err.Error(), http.StatusUnauthorized)
 			return
 		}
 
-		// Add the token to the request context
-		ctx := context.WithValue(r.Context(), "token", token)
-		ctx = context.WithValue(ctx, "uid", token.UID)
+		ctx := context.WithValue(r.Context(), tokenKey, token)
+		ctx = context.WithValue(ctx, uidKey, token.UID)
 
-		// Call the next handler with the updated context
 		next(w, r.WithContext(ctx))
 	}
 }
 
 // GetUIDFromContext extracts the user ID from the context
 func GetUIDFromContext(ctx context.Context) (string, error) {
-	uid, ok := ctx.Value("uid").(string)
+
+	uid, ok := ctx.Value(uidKey).(string)
 	if !ok {
-		return "", errors.New("unauthorized: uid not found in context")
+		return "", errors.New("uid not found in context or not a string")
 	}
 	return uid, nil
 }
 
 // GetTokenFromContext extracts the token from the context
 func GetTokenFromContext(ctx context.Context) (*auth.Token, error) {
-	token, ok := ctx.Value("token").(*auth.Token)
+	token, ok := ctx.Value(tokenKey).(*auth.Token)
 	if !ok {
-		return nil, errors.New("unauthorized: token not found in context")
+		return nil, errors.New("token not found in context or not correct type")
 	}
 	return token, nil
 }
